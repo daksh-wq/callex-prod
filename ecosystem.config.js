@@ -22,7 +22,7 @@ module.exports = {
       cwd: "./enterprise/backend",
       env: {
         NODE_ENV: "production",
-        PORT: 4500
+        PORT: 4000
       },
       error_file: "logs/enterprise-error.log",
       out_file: "logs/enterprise-out.log",
