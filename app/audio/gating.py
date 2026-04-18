@@ -598,7 +598,8 @@ async def quick_asr_cx(pcm_bytes: bytes, api_key: str, sample_rate: int = 16000)
     
     import base64 as _b64
     _llm_base = _b64.b64decode(b'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20vdjFiZXRhL21vZGVscy8=').decode()
-    url = f"{_llm_base}gemini-2.5-flash-preview-09-2025:generateContent?key={api_key}"
+    _m = _b64("Z2VtaW5pLTIuNS1mbGFzaC1wcmV2aWV3LTA5LTIwMjU6Z2VuZXJhdGVDb250ZW50").decode()
+    url = f"{_llm_base}{_m}?key={api_key}"
     
     payload = {
         "contents": [{

@@ -900,7 +900,7 @@ function LiveSimulationModal({ agent, onClose }) {
         } catch (e) { /* already started */ }
     }
 
-    // Initialize Sarvam AI STT via AudioWorklet + WebSocket Pipeline
+    // Initialize CX-STT Voice Engine via AudioWorklet + WebSocket Pipeline
     useEffect(() => {
         let micStream = null;
         let audioContext = null;
@@ -911,7 +911,7 @@ function LiveSimulationModal({ agent, onClose }) {
         let finalTranscript = '';
         let interimTranscript = '';
 
-        const initSarvamSTT = async () => {
+        const initCxSTT = async () => {
             try {
                 // Step 1: Get microphone with hardware DSP noise suppression
                 micStream = await navigator.mediaDevices.getUserMedia({
@@ -949,7 +949,7 @@ function LiveSimulationModal({ agent, onClose }) {
                 lowPassFilter.frequency.value = 3400;
                 lowPassFilter.Q.value = 0.7;
 
-                // Step 2.7: PCM Downsampler AudioWorklet (48kHz → 16kHz for Sarvam)
+                // Step 2.7: PCM Downsampler AudioWorklet (48kHz → 16kHz for Voice Engine)
                 await audioContext.audioWorklet.addModule('/stt-worklet.js');
                 const workletNode = new AudioWorkletNode(audioContext, 'stt-processor');
 
@@ -962,14 +962,14 @@ function LiveSimulationModal({ agent, onClose }) {
                 workletNode.connect(audioContext.destination);
                 console.log("🔇 Full Voice Isolation Pipeline Active: AI Denoise → Bandpass → 16kHz.");
 
-                // Step 3: Connect to backend WebSocket proxy -> Sarvam AI
+                // Step 3: Connect to backend WebSocket proxy -> CX Voice Engine
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
                 const wsHost = window.location.host;
                 const langCode = agent.language || 'hi-IN';
                 sttWs = new WebSocket(`${wsProtocol}://${wsHost}/?type=stt&lang=${langCode}`);
 
                 sttWs.onopen = () => {
-                    console.log("🔗 Sarvam STT WebSocket connected.");
+                    console.log("🔗 Voice Engine WebSocket connected.");
                     setCallStatus('listening');
                 };
 
@@ -988,7 +988,7 @@ function LiveSimulationModal({ agent, onClose }) {
                     }
                 };
 
-                // Step 5: Handle transcription results from Sarvam via backend proxy
+                // Step 5: Handle transcription results from Voice Engine via backend proxy
                 sttWs.onmessage = (event) => {
                     try {
                         const msg = JSON.parse(event.data);
@@ -1071,7 +1071,7 @@ function LiveSimulationModal({ agent, onClose }) {
                                 }, dynamicPatience);
                             }
                         } else if (msg.type === 'error') {
-                            console.error("Sarvam STT Error:", msg.message);
+                            console.error("Voice Engine Error:", msg.message);
                         }
                     } catch (e) {
                         console.error("STT WS message parse error:", e);
@@ -1087,12 +1087,12 @@ function LiveSimulationModal({ agent, onClose }) {
                 };
 
             } catch (err) {
-                console.error("Failed to initialize Sarvam STT:", err);
+                console.error("Failed to initialize Voice Engine:", err);
                 setCallStatus('error');
             }
         };
 
-        initSarvamSTT();
+        initCxSTT();
 
         // Simulated ring delay before outbound greeting starts
         setTimeout(() => {

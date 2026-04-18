@@ -97,7 +97,7 @@ class ConfigManager:
         return BotConfig(
             vad=VADSettings(),
             api_credentials=APICredentials(
-                server_key=os.getenv("GENARTML_SERVER_KEY", "set-your-gemini-key"),
+                server_key=os.getenv("CX_LLM_KEY") or os.getenv("GENARTML_SERVER_KEY", "set-your-token"),
                 secret_key=os.getenv("GENARTML_SECRET_KEY", "set-your-callex-voice-key"),
                 voice_id=os.getenv("GENARTML_VOICE_ID", "set-your-voice-id")
             ),

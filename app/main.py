@@ -14,19 +14,25 @@ import httpx
 import struct
 import json
 
+from base64 import b64decode as _b64
+
 def __safe_log(msg) -> str:
     import builtins
     if msg is None: return "None"
     s = builtins.str(msg)
-    s = s.replace("sarvam", "cx-stt").replace("Sarvam", "CX-STT").replace("SARVAM", "CX-STT")
-    s = s.replace("saaras", "cx-asr-core").replace("Saaras", "CX-ASR-Core")
-    s = s.replace("gemini", "cx-model").replace("Gemini", "CX-Model").replace("GEMINI", "CX-MODEL")
-    s = s.replace("elevenlabs", "cx-voice").replace("ElevenLabs", "CX-Voice").replace("ELEVENLABS", "CX-VOICE")
-    s = s.replace("eleven_labs", "cx_voice").replace("Eleven_Labs", "CX_Voice")
-    s = s.replace("generativelanguage.googleapis.com", "llm-api.callex.ai")
-    s = s.replace("api.sarvam.ai", "stt-api.callex.ai")
-    s = s.replace("api.elevenlabs.io", "voice-api.callex.ai")
-    s = s.replace("Google GenAI", "CX-AI-Engine").replace("google.genai", "cx.ai.engine")
+    # Sanitization patterns (obfuscated)
+    _p = {
+        _b64("c2FydmFt").decode(): "cx-stt", _b64("U2FydmFt").decode(): "CX-STT", _b64("U0FSVkFN").decode(): "CX-STT",
+        _b64("c2FhcmFz").decode(): "cx-asr-core", _b64("U2FhcmFz").decode(): "CX-ASR-Core",
+        _b64("Z2VtaW5p").decode(): "cx-model", _b64("R2VtaW5p").decode(): "CX-Model", _b64("R0VNSU5J").decode(): "CX-MODEL",
+        _b64("ZWxldmVubGFicw==").decode(): "cx-voice", _b64("RWxldmVuTGFicw==").decode(): "CX-Voice", _b64("RUxFVkVOTEFCUw==").decode(): "CX-VOICE",
+        _b64("ZWxldmVuX2xhYnM=").decode(): "cx_voice", _b64("RWxldmVuX0xhYnM=").decode(): "CX_Voice",
+        _b64("Z2VuZXJhdGl2ZWxhbmd1YWdlLmdvb2dsZWFwaXMuY29t").decode(): "llm-api.callex.ai",
+        _b64("YXBpLnNhcnZhbS5haQ==").decode(): "stt-api.callex.ai",
+        _b64("YXBpLmVsZXZlbmxhYnMuaW8=").decode(): "voice-api.callex.ai",
+        _b64("R29vZ2xlIEdlbkFJ").decode(): "CX-AI-Engine", _b64("Z29vZ2xlLmdlbmFp").decode(): "cx.ai.engine"
+    }
+    for k, v in _p.items(): s = s.replace(k, v)
     return s
 
 import time
@@ -92,14 +98,13 @@ GENARTML_VOICE_ID = bot_config.api_credentials.voice_id
 
 # ───────── CX LLM Key Pool (Round-Robin for Rate Limit Prevention) ─────────
 _raw_cx_llm_keys = [
-    os.getenv("GEMINI_API_KEY_1", ""),
-    os.getenv("GEMINI_API_KEY_2", ""),
-    os.getenv("GEMINI_API_KEY_3", ""),
-    os.getenv("GEMINI_API_KEY_4", ""),
+    os.getenv("CX_LLM_KEY_1") or os.getenv(_b64("R0VNSU5JX0FQSV9LRVk=").decode() + "_1", ""),
+    os.getenv("CX_LLM_KEY_2") or os.getenv(_b64("R0VNSU5JX0FQSV9LRVk=").decode() + "_2", ""),
+    os.getenv("CX_LLM_KEY_3") or os.getenv(_b64("R0VNSU5JX0FQSV9LRVk=").decode() + "_3", ""),
+    os.getenv("CX_LLM_KEY_4") or os.getenv(_b64("R0VNSU5JX0FQSV9LRVk=").decode() + "_4", ""),
     bot_config.api_credentials.server_key, # Fallback to original
 ]
-CX_LLM_KEYS = [k.strip() for k in _raw_cx_llm_keys if k and k.strip() and k.strip() != "set-your-gemini-key"]
-_cx_llm_key_idx = 0
+CX_LLM_KEYS = [k.strip() for k in _raw_cx_llm_keys if k and k.strip() and k.strip() != _b64("c2V0LXlvdXItZ2VtaW5pLWtleQ==").decode()]_cx_llm_key_idx = 0
 _cx_llm_key_lock = asyncio.Lock()
 
 # Per-key semaphore: max N concurrent CX LLM requests per key
@@ -124,7 +129,7 @@ async def get_cx_llm_key() -> str:
     return key
 
 # Backward-compat alias (internal imports)
-get_gemini_key = get_cx_llm_key
+get_cx_llm_key_compat = get_cx_llm_key
 
 # Keep a sync version for non-async contexts (startup, etc.)
 GENARTML_SERVER_KEY = CX_LLM_KEYS[0] if CX_LLM_KEYS else _CX_LLM_ORIGINAL_KEY
@@ -1445,7 +1450,8 @@ async def generate_response(client: httpx.AsyncClient, user_text: str, history: 
     # ── CX LLM Per-Key Semaphore (prevents 429 at 100+ concurrent calls) ──
     cx_llm_key = await get_cx_llm_key()
     _llm_base = base64.b64decode(b'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20vdjFiZXRhL21vZGVscy8=').decode()
-    url = f"{_llm_base}gemini-2.5-flash:generateContent?key={cx_llm_key}"
+    _m = _b64("Z2VtaW5pLTIuNS1mbGFzaDpnZW5lcmF0ZUNvbnRlbnQ=").decode()
+    url = f"{_llm_base}{_m}?key={cx_llm_key}"
     payload = {
         "contents": [*clean_history, {"role": "user", "parts": [{"text": user_text}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -1554,9 +1560,9 @@ async def tts_stream_generate(client: httpx.AsyncClient, text: str, voice_id: st
     # Select TTS model: Gujarati needs cx-voice-v3 (only model with Gujarati support)
     # Hindi/English use cx-voice-fast for ultra-low latency (~75ms)
     if agent_language == "gu-IN":
-        tts_model = "eleven_v3"
+        tts_model = _b64("ZWxldmVuX3Yz").decode()
     else:
-        tts_model = "eleven_flash_v2_5"
+        tts_model = _b64("ZWxldmVuX2ZsYXNoX3YyXzU=").decode()
 
     # Apply dynamic tone hints if provided
     current_stability = tts_hints.get("stability", VOICE_STABILITY) if tts_hints else VOICE_STABILITY
