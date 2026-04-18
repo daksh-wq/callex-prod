@@ -22,13 +22,11 @@ def __safe_log(msg) -> str:
     s = builtins.str(msg)
     # Sanitization patterns (obfuscated)
     _p = {
-        _b64("c2FydmFt").decode(): "cx-stt", _b64("U2FydmFt").decode(): "CX-STT", _b64("U0FSVkFN").decode(): "CX-STT",
         _b64("c2FhcmFz").decode(): "cx-asr-core", _b64("U2FhcmFz").decode(): "CX-ASR-Core",
         _b64("Z2VtaW5p").decode(): "cx-model", _b64("R2VtaW5p").decode(): "CX-Model", _b64("R0VNSU5J").decode(): "CX-MODEL",
         _b64("ZWxldmVubGFicw==").decode(): "cx-voice", _b64("RWxldmVuTGFicw==").decode(): "CX-Voice", _b64("RUxFVkVOTEFCUw==").decode(): "CX-VOICE",
         _b64("ZWxldmVuX2xhYnM=").decode(): "cx_voice", _b64("RWxldmVuX0xhYnM=").decode(): "CX_Voice",
         _b64("Z2VuZXJhdGl2ZWxhbmd1YWdlLmdvb2dsZWFwaXMuY29t").decode(): "llm-api.callex.ai",
-        _b64("YXBpLnNhcnZhbS5haQ==").decode(): "stt-api.callex.ai",
         _b64("YXBpLmVsZXZlbmxhYnMuaW8=").decode(): "voice-api.callex.ai",
         _b64("R29vZ2xlIEdlbkFJ").decode(): "CX-AI-Engine", _b64("Z29vZ2xlLmdlbmFp").decode(): "cx.ai.engine"
     }
@@ -75,7 +73,7 @@ from app.audio.speaker_verifier import SpeakerVerifier
 from app.core.agent_loader import load_agent, get_default_agent, get_active_prompt, FALLBACK_AGENT
 from app.audio.deepfilter_denoiser import load_deepfilter_model, DeepFilterDenoiser
 from app.audio.call_context import CallAudioContext
-from app.audio.sst_model_2_streaming import SSTModel2StreamingSTT
+from app.audio.callex_stt import CallexSTT
 from app.core.conversation_brain import ConversationBrain
 
 # Force unbuffered output for PM2/Systemd logging
@@ -262,22 +260,22 @@ _TTS_MAX_CONCURRENT = int(os.getenv("TTS_MAX_CONCURRENT", "15"))
 _tts_semaphore = asyncio.Semaphore(_TTS_MAX_CONCURRENT)
 print(f"[CONFIG] 🔊 TTS concurrency limit: {_TTS_MAX_CONCURRENT} simultaneous streams")
 
-# SSTModel2 AI ASR keys from environment (no hardcoded defaults)
-_raw_sst_model_2_keys = [
+# Callex AI ASR keys from environment (no hardcoded defaults)
+_raw_callex_keys = [
     os.getenv("SST_MODEL_2_API_KEY_1", ""),
     os.getenv("SST_MODEL_2_API_KEY_2", ""),
     os.getenv("SST_MODEL_2_API_KEY_3", ""),
     os.getenv("SST_MODEL_2_API_KEY_4", ""),
     os.getenv("SST_MODEL_2_API_KEY_5", ""),
 ]
-SST_MODEL_2_KEYS = [k.strip() for k in _raw_sst_model_2_keys if k and k.strip()]
-sst_model_2_key_manager = CallexVoiceKeyManager(SST_MODEL_2_KEYS)
+SST_MODEL_2_KEYS = [k.strip() for k in _raw_callex_keys if k and k.strip()]
+callex_key_manager = CallexVoiceKeyManager(SST_MODEL_2_KEYS)
 
-async def get_sst_model_2_key() -> str:
-    """Gets a healthy, non-rate-limited SSTModel2 API key."""
-    return sst_model_2_key_manager.get_key()
+async def get_callex_key() -> str:
+    """Gets a healthy, non-rate-limited Callex API key."""
+    return callex_key_manager.get_key()
 
-print(f"[CONFIG] ⚡ SSTModel2 AI ASR Pool initialized with {len(SST_MODEL_2_KEYS)} keys")
+print(f"[CONFIG] ⚡ Callex AI ASR Pool initialized with {len(SST_MODEL_2_KEYS)} keys")
 
 # Audio Configuration
 SAMPLE_RATE = 16000  # 16kHz (High Quality)
@@ -1005,23 +1003,22 @@ def trim_history(history: List[Dict]) -> List[Dict]:
 # Primary: Streaming WS (real-time, connected per call)
 # Fallback: Batch REST API (when WS not connected)
 
-async def _sst_model_2_batch_transcribe(client: httpx.AsyncClient, wav_bytes: bytes, prompt: str = "", language: str = "hi-IN") -> Optional[str]:
+async def _callex_batch_transcribe(client: httpx.AsyncClient, wav_bytes: bytes, prompt: str = "", language: str = "hi-IN") -> Optional[str]:
     """Batch ASR using Speech-To-Text Model-9th APRIL REST API (~200-500ms)."""
     import io
     if not SST_MODEL_2_KEYS:
         print("[SST_MODEL_2 BATCH] ❌ No API keys configured")
         return None
     
-    sst_model_2_key = sst_model_2_key_manager.get_key()
-    if not sst_model_2_key:
+    callex_key = callex_key_manager.get_key()
+    if not callex_key:
         print("[SST_MODEL_2 BATCH] ❌ No healthy keys available")
         return None
     
     # ── Internal GPU Cluster Routing ──
     # Retrieve the fastest available local compute node
     import base64
-    internal_node_endpoint = base64.b64decode(b'aHR0cHM6Ly9hcGkuc2FydmFtLmFpL3NwZWVjaC10by10ZXh0').decode('utf-8')
-    cluster_auth_headers = {"api-subscription-key": sst_model_2_key}  # Internal cross-container TLS auth
+    cluster_auth_headers = {"api-subscription-key": callex_key}  # Internal cross-container TLS auth
     
     for attempt in range(2):
         try:
@@ -1042,20 +1039,20 @@ async def _sst_model_2_batch_transcribe(client: httpx.AsyncClient, wav_bytes: by
             
             if r.status_code == 429:
                 # GPU node overloaded, trigger auto-failover to next available compute core
-                sst_model_2_key_manager.report_failure(sst_model_2_key, 429)
-                sst_model_2_key = sst_model_2_key_manager.get_key()
-                if not sst_model_2_key:
+                callex_key_manager.report_failure(callex_key, 429)
+                callex_key = callex_key_manager.get_key()
+                if not callex_key:
                     return None
-                cluster_auth_headers = {"api-subscription-key": sst_model_2_key}
+                cluster_auth_headers = {"api-subscription-key": callex_key}
                 continue
             
             if r.status_code != 200:
                 print(f"[SST_MODEL_2 CLUSTER] Internal Node Error {r.status_code}: {__safe_log(r.text)[:200]}")
-                sst_model_2_key_manager.report_failure(sst_model_2_key, r.status_code)
+                callex_key_manager.report_failure(callex_key, r.status_code)
                 if attempt == 0:
-                    sst_model_2_key = sst_model_2_key_manager.get_key()
-                    if sst_model_2_key:
-                        cluster_auth_headers = {"api-subscription-key": sst_model_2_key}
+                    callex_key = callex_key_manager.get_key()
+                    if callex_key:
+                        cluster_auth_headers = {"api-subscription-key": callex_key}
                         continue
                 return None
             
@@ -1069,9 +1066,9 @@ async def _sst_model_2_batch_transcribe(client: httpx.AsyncClient, wav_bytes: by
         except asyncio.TimeoutError:
             print(f"[SST_MODEL_2 CLUSTER] ⏱️ Compute node timeout ({attempt + 1}/2)")
             if attempt == 0:
-                sst_model_2_key = sst_model_2_key_manager.get_key()
-                if sst_model_2_key:
-                    cluster_auth_headers = {"api-subscription-key": sst_model_2_key}
+                callex_key = callex_key_manager.get_key()
+                if callex_key:
+                    cluster_auth_headers = {"api-subscription-key": callex_key}
                     continue
             return None
         except Exception as e:
@@ -1100,7 +1097,7 @@ async def asr_transcribe(client: httpx.AsyncClient, pcm16: bytes, ws: WebSocket,
             if parts and "text" in parts[0]:
                 prompt_context = parts[0]["text"] + " " + prompt_context
 
-    text = await _sst_model_2_batch_transcribe(client, wav_bytes, prompt=prompt_context.strip(), language=language)
+    text = await _callex_batch_transcribe(client, wav_bytes, prompt=prompt_context.strip(), language=language)
 
     if not text:
         return None
@@ -1944,8 +1941,8 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
     barge_in_confirm_start = None  # Timestamp when continuous caller speech started
     was_barge_in = False  # Track if current speech started as a barge-in
     barge_in_active = False  # Instantly blocks all bot audio when True
-    sst_model_2_fed_audio = False  # Track if audio was sent to SSTModel2 since last flush
-    sst_model_2_last_audio_time = 0.0  # When audio was last sent to SSTModel2
+    callex_fed_audio = False  # Track if audio was sent to Callex since last flush
+    callex_last_audio_time = 0.0  # When audio was last sent to Callex
     speaking_start_time = 0.0  # When speaking started (for max duration limit)
     MAX_SPEAKING_DURATION = 15.0  # Force end-of-speech after 15s
 
@@ -2075,10 +2072,10 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
     client = get_shared_client()
     if client:
 
-        # ── SSTModel2 Streaming STT State ────────────────────────────────────────────
-        # Transcripts arrive via SSTModel2 WebSocket → pushed to queue → processed by background task
-        sst_model_2_transcript_queue = asyncio.Queue()
-        sst_model_2_stt: Optional[SSTModel2StreamingSTT] = None
+        # ── Callex Streaming STT State ────────────────────────────────────────────
+        # Transcripts arrive via Callex WebSocket → pushed to queue → processed by background task
+        callex_transcript_queue = asyncio.Queue()
+        callex_stt: Optional[CallexSTT] = None
         transcript_processor_task: Optional[asyncio.Task] = None
         is_processing_audio: bool = False
 
@@ -2240,14 +2237,14 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
             except asyncio.CancelledError:
                 pass
 
-        # ── SSTModel2 Streaming STT Callbacks ───────────────────────────────────────
+        # ── Callex Streaming STT Callbacks ───────────────────────────────────────
 
-        async def _on_sst_model_2_transcript(text: str):
-            """Called by SSTModel2 WS when a final transcript arrives."""
-            await sst_model_2_transcript_queue.put(text)
+        async def _on_callex_transcript(text: str):
+            """Called by Callex WS when a final transcript arrives."""
+            await callex_transcript_queue.put(text)
 
-        async def _on_sst_model_2_speech_started():
-            """Called when SSTModel2 server VAD detects speech — reinforces local barge-in."""
+        async def _on_callex_speech_started():
+            """Called when Callex server VAD detects speech — reinforces local barge-in."""
             nonlocal speaking, was_barge_in, last_voice, bot_audio_expected_end, barge_in_active
             if not first_line_complete:
                 return
@@ -2256,39 +2253,39 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
             if bot_speaking and not speaking:
                 print("[SST_MODEL_2 VAD] 🎤 Server confirms speech during bot playback")
 
-        async def _on_sst_model_2_speech_ended():
-            """Called when SSTModel2 server VAD detects speech end — triggers immediate flush.
+        async def _on_callex_speech_ended():
+            """Called when Callex server VAD detects speech end — triggers immediate flush.
             
             KEY OPTIMIZATION: The STT server's VAD detects end-of-speech ~300-500ms faster
             than our local 0.8s silence timeout. By trusting the server signal and immediately
             resetting local speaking state + flushing, we cut total latency significantly.
             """
-            nonlocal sst_model_2_fed_audio, speaking, was_barge_in, speaking_start_time
-            if sst_model_2_fed_audio:
+            nonlocal callex_fed_audio, speaking, was_barge_in, speaking_start_time
+            if callex_fed_audio:
                 print("[SST_MODEL_2 VAD] 🔇 Server reports speech ended — immediate flush + VAD reset")
-                if sst_model_2_stt and sst_model_2_stt.is_connected:
-                    sst_model_2_stt.send_flush()
-                    sst_model_2_fed_audio = False
+                if callex_stt and callex_stt.is_connected:
+                    callex_stt.send_flush()
+                    callex_fed_audio = False
                 # Reset local VAD state immediately — don't wait for 0.8s silence timeout
                 if speaking:
                     speaking = False
                     was_barge_in = False
                     speaking_start_time = 0.0
 
-        async def _connect_sst_model_2():
-            """Connect to SSTModel2 streaming STT WebSocket."""
-            nonlocal sst_model_2_stt
+        async def _connect_callex():
+            """Connect to Callex streaming STT WebSocket."""
+            nonlocal callex_stt
             if not SST_MODEL_2_KEYS:
-                print("[SST_MODEL_2 WS] ⚠️ No SSTModel2 API keys configured, streaming STT disabled (batch ASR fallback active)")
+                print("[SST_MODEL_2 WS] ⚠️ No Callex API keys configured, streaming STT disabled (batch ASR fallback active)")
                 return
             try:
-                sst_model_2_key = sst_model_2_key_manager.get_key()
-                stt = SSTModel2StreamingSTT(
-                    api_key=sst_model_2_key, # fallback static key logic
-                    key_manager=sst_model_2_key_manager, # active dynamic rotation logic
-                    on_transcript=_on_sst_model_2_transcript,
-                    on_speech_started=_on_sst_model_2_speech_started,
-                    on_speech_ended=_on_sst_model_2_speech_ended,
+                callex_key = callex_key_manager.get_key()
+                stt = CallexSTT(
+                    api_key=callex_key, # fallback static key logic
+                    key_manager=callex_key_manager, # active dynamic rotation logic
+                    on_transcript=_on_callex_transcript,
+                    on_speech_started=_on_callex_speech_started,
+                    on_speech_ended=_on_callex_speech_ended,
                     model="genartml-callex",
                     language="en-IN" if agent_config.get('language', 'hi-IN').startswith('en') else agent_config.get('language', 'hi-IN'),
                     mode="translit" if agent_config.get('language') == "gu-IN" else "transcribe",
@@ -2297,20 +2294,20 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                     high_vad_sensitivity=True,
                 )
                 await stt.connect()
-                sst_model_2_stt = stt
+                callex_stt = stt
                 print("[SST_MODEL_2 WS] ✅ Streaming STT ready")
             except Exception as e:
                 print(f"[SST_MODEL_2 WS] ❌ Failed to connect: {__safe_log(e)} (batch ASR fallback active)")
                 import traceback
                 traceback.print_exc()
 
-        asyncio.create_task(_connect_sst_model_2())
+        asyncio.create_task(_connect_callex())
 
-        async def _process_sst_model_2_transcripts():
-            """Background task: picks transcripts from the SSTModel2 queue → LLM → TTS.
+        async def _process_callex_transcripts():
+            """Background task: picks transcripts from the Callex queue → LLM → TTS.
 
             This replaces the old process_audio function. Instead of waiting for
-            silence to batch-ASR audio, transcripts arrive in real-time from SSTModel2
+            silence to batch-ASR audio, transcripts arrive in real-time from Callex
             WebSocket and are processed immediately.
             """
             nonlocal ws_alive, bot_speaking, barge_in_active, is_processing_audio
@@ -2319,15 +2316,15 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
             while ws_alive:
                 try:
                     text = await asyncio.wait_for(
-                        sst_model_2_transcript_queue.get(), timeout=1.0
+                        callex_transcript_queue.get(), timeout=1.0
                     )
                     if not text or not ws_alive:
                         continue
 
                     # Drain queue — only process the LATEST transcript
-                    while not sst_model_2_transcript_queue.empty():
+                    while not callex_transcript_queue.empty():
                         try:
-                            newer = sst_model_2_transcript_queue.get_nowait()
+                            newer = callex_transcript_queue.get_nowait()
                             if newer:
                                 print(f"[SST_MODEL_2] ⏭️ Skipping older: '{text[:40]}' → using newer")
                                 text = newer
@@ -2416,9 +2413,9 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                         # with the same history, producing duplicate/confused responses.
                         async with brain._llm_lock:
                             # Drain queue AGAIN under lock — pick up any newer transcripts
-                            while not sst_model_2_transcript_queue.empty():
+                            while not callex_transcript_queue.empty():
                                 try:
-                                    newer = sst_model_2_transcript_queue.get_nowait()
+                                    newer = callex_transcript_queue.get_nowait()
                                     if newer:
                                         print(f"[LLM GATE] ⏭️ Pre-LLM drain: '{text[:30]}' → '{newer[:30]}'")
                                         text = newer
@@ -2531,9 +2528,9 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                 finally:
                     is_processing_audio = False
 
-        # ALWAYS start transcript processor — it reads from sst_model_2_transcript_queue
-        # which is fed by EITHER SSTModel2 WS callbacks OR batch ASR fallback
-        transcript_processor_task = asyncio.create_task(_process_sst_model_2_transcripts())
+        # ALWAYS start transcript processor — it reads from callex_transcript_queue
+        # which is fed by EITHER Callex WS callbacks OR batch ASR fallback
+        transcript_processor_task = asyncio.create_task(_process_callex_transcripts())
 
         # Send opener
         opener_text = agent_config['openingLine']
@@ -2719,7 +2716,7 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                     clean_int16 = (enhanced_float32 * 32767.0).astype(np.int16)
                     recorder.write_customer_audio(clean_int16.tobytes())
 
-                    # 3b. SSTModel2 STT feeding is DEFERRED until after speaker verification
+                    # 3b. Callex STT feeding is DEFERRED until after speaker verification
                     # (see below — we only feed verified caller audio to STT)
                     
                     # 4. enhanced_float32 is already float32 — feed into DSP pipeline
@@ -2744,14 +2741,14 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                         print(f"[VAD] ⏰ Max speaking duration ({MAX_SPEAKING_DURATION}s) reached — forcing end-of-speech")
                         silence_detected = True
 
-                    # ── Secondary: audio was fed to SSTModel2 but speaking never formally started ──
+                    # ── Secondary: audio was fed to Callex but speaking never formally started ──
                     # (handles short quiet words like "haan", "nahi" that don't pass barge-in threshold)
-                    if not speaking and sst_model_2_fed_audio and sst_model_2_last_audio_time > 0 and (now - sst_model_2_last_audio_time) > 0.7:
-                        print(f"[VAD] 🔇 SSTModel2 audio timeout — flushing unsent speech")
-                        if sst_model_2_stt and sst_model_2_stt.is_connected:
-                            sst_model_2_stt.send_flush()
-                        sst_model_2_fed_audio = False
-                        sst_model_2_last_audio_time = 0.0
+                    if not speaking and callex_fed_audio and callex_last_audio_time > 0 and (now - callex_last_audio_time) > 0.7:
+                        print(f"[VAD] 🔇 Callex audio timeout — flushing unsent speech")
+                        if callex_stt and callex_stt.is_connected:
+                            callex_stt.send_flush()
+                        callex_fed_audio = False
+                        callex_last_audio_time = 0.0
 
                     if silence_detected:
                         speaking = False
@@ -2759,12 +2756,12 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                         speaking_start_time = 0.0
                         speaker_verifier.clear_verify_buffer()
 
-                        if sst_model_2_stt and sst_model_2_stt.is_connected:
-                            sst_model_2_stt.send_flush()
-                            sst_model_2_fed_audio = False
+                        if callex_stt and callex_stt.is_connected:
+                            callex_stt.send_flush()
+                            callex_fed_audio = False
 
-                        # ── BATCH ASR FALLBACK: If SSTModel2 WS is not connected, use batch ASR ──
-                        if not (sst_model_2_stt and sst_model_2_stt.is_connected):
+                        # ── BATCH ASR FALLBACK: If Callex WS is not connected, use batch ASR ──
+                        if not (callex_stt and callex_stt.is_connected):
                             duration = len(buffer) / SAMPLE_RATE
                             if duration >= MIN_SPEECH_DURATION:
                                 samples = np.array(buffer, dtype=np.float32)
@@ -2773,7 +2770,7 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                                 try:
                                     user_text = await asr_transcribe(client, pcm16, ws, semantic_filter=semantic_filter, history=await brain.get_history(), language=agent_config.get('language', 'hi-IN'))
                                     if user_text:
-                                        await sst_model_2_transcript_queue.put(user_text)
+                                        await callex_transcript_queue.put(user_text)
                                 except Exception as e:
                                     print(f"[FALLBACK ASR] Error: {__safe_log(e)}")
                             else:
@@ -2817,12 +2814,12 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                         speaker_verifier.feed_verify_buffer(filtered_chunk)
                         speaker_similarity = 0.70
 
-                    # ── Feed VERIFIED audio to SSTModel2 STT ──
-                    if sst_model_2_stt and sst_model_2_stt.is_connected and first_line_complete:
+                    # ── Feed VERIFIED audio to Callex STT ──
+                    if callex_stt and callex_stt.is_connected and first_line_complete:
                         if time.time() > bot_audio_expected_end + 0.15:
-                            sst_model_2_stt.send_audio(clean_int16.tobytes())
-                            sst_model_2_fed_audio = True
-                            sst_model_2_last_audio_time = now
+                            callex_stt.send_audio(clean_int16.tobytes())
+                            callex_fed_audio = True
+                            callex_last_audio_time = now
 
                     buffer.extend(unfiltered_clean)
                     vad_buffer.extend(filtered_chunk)
@@ -2920,7 +2917,7 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
                             print("[WS] BARGE received! Transferring call...")
                             await cancel_current()
                             await brain.add_system_note("[System: A human supervisor has taken over the call. Say a quick goodbye and hang up.]")
-                            await sst_model_2_transcript_queue.put("[System: A human supervisor has taken over the call. Say a quick goodbye and hang up.]")
+                            await callex_transcript_queue.put("[System: A human supervisor has taken over the call. Say a quick goodbye and hang up.]")
                     except Exception as e:
                         print(f"[WS JSON Error]: {__safe_log(e)}")
 
@@ -2947,13 +2944,13 @@ async def _handle_call(ws: WebSocket, route_agent_id: str = None):
             except Exception:
                 pass
 
-            # ── Disconnect SSTModel2 Streaming STT ──
-            if sst_model_2_stt:
+            # ── Disconnect Callex Streaming STT ──
+            if callex_stt:
                 try:
-                    await sst_model_2_stt.disconnect()
+                    await callex_stt.disconnect()
                 except Exception:
                     pass
-                sst_model_2_stt = None  # Release reference
+                callex_stt = None  # Release reference
             if transcript_processor_task and not transcript_processor_task.done():
                 transcript_processor_task.cancel()
                 try:
