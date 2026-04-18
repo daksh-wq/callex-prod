@@ -5,6 +5,8 @@ import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import dns from 'dns';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Fix for Node.js 18+ native fetch ENOTFOUND errors on macOS
 dns.setDefaultResultOrder('ipv4first');
