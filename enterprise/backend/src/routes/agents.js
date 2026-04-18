@@ -137,7 +137,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     // If file is uploaded during creation, process knowledge immediately
     if (req.file) {
         const { buffer, mimetype, originalname, size } = req.file;
-        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d);
+        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()];
         const ext = '.' + originalname.split('.').pop().toLowerCase();
         
         if (CX_LLM_KEY) {
@@ -292,7 +292,7 @@ router.patch('/:id', upload.single('file'), async (req, res) => {
     // Handle Knowledge Base Upload if file is present
     if (req.file) {
         const { buffer, mimetype, originalname } = req.file;
-        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d);
+        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()];
         const ext = '.' + originalname.split('.').pop().toLowerCase();
         
         if (CX_LLM_KEY) {
@@ -439,7 +439,7 @@ router.post('/:id/knowledge', upload.single('file'), async (req, res) => {
 
         console.log(`[KNOWLEDGE] Processing ${originalname} (${(size / 1024).toFixed(1)}KB) for agent ${req.params.id}`);
 
-        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d);
+        const CX_LLM_KEY = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()];
         if (!CX_LLM_KEY) return res.status(500).json({ error: 'AI API key not configured' });
 
         const { getCXModelClient } = await import('../_rctx.js');

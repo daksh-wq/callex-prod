@@ -87,7 +87,7 @@ router.post('/agent-chat', async (req, res) => {
         };
 
         let aiText = getTrainingFallback();
-        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d) || 'MISSING_KEY';
+        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()] || 'MISSING_KEY';
         if (cxLlmKey && cxLlmKey !== 'MISSING_KEY') {
             try {
                 const { getCXModelClient } = await import('../_rctx.js');

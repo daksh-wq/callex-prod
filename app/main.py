@@ -104,7 +104,8 @@ _raw_cx_llm_keys = [
     os.getenv("CX_LLM_KEY_4") or os.getenv(_b64("R0VNSU5JX0FQSV9LRVk=").decode() + "_4", ""),
     bot_config.api_credentials.server_key, # Fallback to original
 ]
-CX_LLM_KEYS = [k.strip() for k in _raw_cx_llm_keys if k and k.strip() and k.strip() != _b64("c2V0LXlvdXItZ2VtaW5pLWtleQ==").decode()]_cx_llm_key_idx = 0
+CX_LLM_KEYS = [k.strip() for k in _raw_cx_llm_keys if k and k.strip() and k.strip() != _b64("c2V0LXlvdXItZ2VtaW5pLWtleQ==").decode()]
+_cx_llm_key_idx = 0
 _cx_llm_key_lock = asyncio.Lock()
 
 # Per-key semaphore: max N concurrent CX LLM requests per key

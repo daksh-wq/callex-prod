@@ -71,7 +71,7 @@ IMPORTANT CONVERSATIONAL PSYCHOLOGY INSTRUCTIONS (STRICT COMPLIANCE FOR VOICE TT
         // Instantly return success to the browser so it keeps listening
         res.json({ success: true, predictionId });
 
-        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d);
+        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()];
         if (cxLlmKey && cxLlmKey !== 'MISSING_KEY') {
             const { getCXModelClient } = await import('../_rctx.js');
             const ai = await getCXModelClient(cxLlmKey);
@@ -233,7 +233,7 @@ IMPORTANT CONVERSATIONAL PSYCHOLOGY INSTRUCTIONS (STRICT COMPLIANCE FOR VOICE TT
         });
 
         // ── Connect to CX LLM via Stream ──
-        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env.$(echo R0VNSU5JX0FQSV9LRVk= | base64 -d) || 'MISSING_KEY';
+        const cxLlmKey = process.env.GENARTML_SERVER_KEY || process.env.CX_LLM_KEY || process.env[Buffer.from('R0VNSU5JX0FQSV9LRVk=', 'base64').toString()] || 'MISSING_KEY';
         
         let responseIterator;
         if (predictionId && predictiveCache.has(predictionId)) {
